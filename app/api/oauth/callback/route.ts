@@ -1,48 +1,32 @@
+// app/api/oauth/callback/route.ts
 import { NextResponse } from "next/server";
+import { WhopSDK } from "@whop/sdk";
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
 
-  if (!code) return NextResponse.json({ error: "No code provided" }, { status: 400 });
+  if (!code) return NextResponse.json({ error: "No code" });
 
   try {
-    // 1. Exchange the temporary code for an Access Token
-    const tokenRes = await fetch("https://api.whop.com/oauth/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "authorization_code",
-        code,
-        client_id: process.env.WHOP_CLIENT_ID,
-        client_secret: process.env.WHOP_CLIENT_SECRET,
-        redirect_uri: `${process.env.NEXT_APP_URL}/api/oauth/callback`,
-      }),
+    // Exchange the code for a User Token
+    const tokenResponse = await WhopSDK.oauth.token({
+      code,
+      clientId: process.env.WHOP_CLIENT_ID!,
+      clientSecret: process.env.WHOP_CLIENT_SECRET!,
+      redirectUri: process.env.WHOP_REDIRECT_URI!,
     });
 
-    const tokenData = await tokenRes.json();
-
-    if (!tokenData.access_token) {
-      throw new Error("Failed to get access token");
-    }
-
-    // 2. Get the User's Company ID using the token
-    const meRes = await fetch("https://api.whop.com/api/v2/me", {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    // Save the token in a Secure Cookie
+    const response = NextResponse.redirect(new URL("/", request.url));
+    response.cookies.set("whop_access_token", tokenResponse.accessToken, {
+      httpOnly: true, // JavaScript can't read this (Security +++)
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
     });
-    const meData = await meRes.json();
-    
-    // Whop API structure for 'me' can vary, usually meData.companies[0].id 
-    // or through the 'authorized_user' context.
-    const businessId = meData.companies?.[0]?.id || meData.id; 
 
-    // 3. Redirect to your Admin Dashboard with the ID
-    return NextResponse.redirect(
-      `${process.env.NEXT_APP_URL}/admin?business_id=${businessId}`
-    );
-
+    return response;
   } catch (error) {
-    console.error("OAuth Error", error);
-    return NextResponse.json({ error: "Authentication Failed" }, { status: 500 });
+    return NextResponse.json({ error: "OAuth Failed" });
   }
 }
