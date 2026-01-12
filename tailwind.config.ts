@@ -6,7 +6,14 @@ const config: Config = {
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        "neon-pink": "#ff00ff", 
+        "neon-cyan": "#00ffff",
+      },
+    },
   },
   plugins: [],
 };

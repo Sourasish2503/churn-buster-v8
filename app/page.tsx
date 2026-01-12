@@ -1,10 +1,9 @@
 import { Suspense } from 'react';
-import { cookies } from 'next/headers'; // Native Next.js cookies
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { RetentionDashboard } from "@/components/retention-dash";
-import  WhopSDK  from "@whop/sdk";
+import WhopSDK from "@whop/sdk";
 
-// 1. Type Definitions
 type VerifiedSession = {
   isValid: boolean;
   membershipId?: string;
@@ -15,69 +14,80 @@ type VerifiedSession = {
   errorMessage?: string;
 };
 
-// 2. The Secure Session Logic
 async function getWhopContext(searchParams: { [key: string]: string }): Promise<VerifiedSession> {
   const isDev = process.env.NODE_ENV === 'development';
   const cookieStore = cookies();
-  const accessToken = cookieStore.get('whop_access_token'); // The key from your OAuth flow
+  const accessToken = cookieStore.get('whop_access_token');
+  
+  // Get Company ID from URL (Whop passes this when loading the app)
+  const companyId = searchParams.company_id;
 
-  // --- SCENARIO A: PREVIEW MODE (Localhost) ---
-  // If we are in Dev and have no real user token, show the preview automatically.
+  // --- SCENARIO A: PREVIEW MODE ---
   if (isDev && !accessToken) {
     return {
       isValid: true,
       membershipId: "mem_dev_123",
       companyId: "biz_dev_test",
-      customerName: "Developer (Local Preview)",
+      customerName: "Dev User",
       discountPercent: "30",
-      isPreviewMode: true // UI will show "Preview Mode" badge
+      isPreviewMode: true 
     };
   }
 
-  // --- SCENARIO B: PRODUCTION (Whop Native Security) ---
-  // We MUST have an access token. If not, the user isn't logged in.
+  // --- SCENARIO B: PRODUCTION (Auto-Redirect) ---
   if (!accessToken) {
-    // In a real app, you might redirect to your OAuth login endpoint here
-    // redirect('/api/auth/login'); 
-    return {
-      isValid: false,
-      errorMessage: "Not Authenticated. Please open this app via Whop.",
-      discountPercent: "0",
-      isPreviewMode: false
-    };
+    // PASS THE PARAMS to the login route so they are preserved
+    const params = new URLSearchParams(searchParams).toString();
+    redirect(`/api/auth/login?${params}`); 
   }
 
   try {
-    // 3. WHOP NATIVE VERIFICATION
-    // Instead of using the Admin Key, we use the USER'S token.
-    // This ensures we only see data this specific user is allowed to see.
     const userSdk = new WhopSDK({ accessToken: accessToken.value });
-    
-    // Fetch the user's true identity
-    const me = await userSdk.me(); // Checks "Who am I?"
-    
-    if (!me.id) throw new Error("Invalid User Token");
+    const me = await userSdk.me(); 
 
-    // NOW we can safely look up their membership using our Admin SDK (or the User SDK)
-    // For this example, we assume we just need their User ID context.
-    
-    // Example: Validate they actually own the membership passed in URL (if any)
-    // Or better: Fetch their active membership for this company automatically.
-    
+    if (!companyId) {
+      // If we are logged in but lost the company_id, we can't find the membership.
+      // Fallback: try to guess or show error.
+      throw new Error("Missing Company Context");
+    }
+
+    // 4. FETCH REAL MEMBERSHIP (The Fix for "Demo Data" Rejection)
+    // We need to find which membership the user has for THIS company.
+    const memberships = await userSdk.listMyMemberships({
+        valid: true,
+        company_id: companyId
+    });
+
+    const activeMembership = memberships.data?.[0];
+
+    if (!activeMembership) {
+        return {
+            isValid: false,
+            errorMessage: "You do not have an active membership with this company.",
+            discountPercent: "0",
+            isPreviewMode: false
+        }
+    }
+
     return {
       isValid: true,
-      membershipId: me.id, // Using their REAL ID, not the URL one
-      companyId: searchParams.company_id || "default_company",
+      membershipId: activeMembership.id, // REAL Membership ID (mem_xxx)
+      companyId: companyId,
       customerName: me.username || "Valued Member",
-      discountPercent: "30", // Fetch from DB based on me.id
+      discountPercent: "30", // TODO: Fetch from your DB based on companyId
       isPreviewMode: false
     };
 
   } catch (error) {
     console.error("Whop Native Verification Failed:", error);
+    // If token is invalid, clear it and retry login
+    if (String(error).includes("401")) {
+        redirect('/api/auth/login');
+    }
+    
     return { 
       isValid: false, 
-      errorMessage: "Security Error: Unable to verify your Whop identity.",
+      errorMessage: "Unable to verify your membership.",
       discountPercent: "0",
       isPreviewMode: false
     };
@@ -91,17 +101,16 @@ export default async function Page({ searchParams }: { searchParams: { [key: str
     return (
       <main className="min-h-screen bg-black flex items-center justify-center p-4 text-white">
         <div className="max-w-md text-center border border-red-900 bg-red-950/30 p-8 rounded-xl">
-          <h1 className="text-xl font-bold text-red-500 mb-2">Access Denied</h1>
+          <h1 className="text-xl font-bold text-red-500 mb-2">Access Issue</h1>
           <p className="text-gray-400">{session.errorMessage}</p>
-          {/* Optional: Add a Login Button here */}
         </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-black flex items-center justify-center p-4 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-black to-black">
-      <Suspense fallback={<div className="text-white">Verifying Identity...</div>}>
+    <main className="min-h-screen bg-black flex items-center justify-center p-4">
+      <Suspense fallback={<div className="text-white">Loading...</div>}>
         <RetentionDashboard 
           membershipId={session.membershipId!} 
           companyId={session.companyId!} 

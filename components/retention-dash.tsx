@@ -98,7 +98,7 @@ export function RetentionDashboard({
         {/* Step 1: Reasons */}
         {step === "reasons" && (
            /* ... (Keep your existing Reason UI code here, it's good) ... */
-           <Card className="border-border/50 bg-card p-8 shadow-2xl backdrop-blur-xl">
+           <Card className="border-white/10 bg-black/40 p-8 shadow-2xl backdrop-blur-xl">
              <div className="space-y-3">
                {cancellationReasons.map((reason) => {
                  const Icon = reason.icon;

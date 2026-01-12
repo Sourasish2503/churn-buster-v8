@@ -1,7 +1,9 @@
 import  WhopSDK  from "@whop/sdk";
 
-// Initialize the SDK with your secure API key
-// This runs on the server, so your key is safe.
-export const whop = new WhopSDK({
-  apiKey: process.env.WHOP_API_KEY as string,
-});
+const apiKey = process.env.WHOP_API_KEY;
+
+if (!apiKey) {
+  throw new Error("❌ MISSING WHOP_API_KEY in .env file");
+}
+
+export const whop = new WhopSDK({ apiKey });
