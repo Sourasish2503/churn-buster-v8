@@ -16,11 +16,7 @@ export async function POST(req: Request) {
 
     // 2. SECURITY: Verify the User
     const cookieStore = cookies();
-    const token = cookieStore.get('whop_access_token');
-
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized: No session found" }, { status: 401 });
-    }
+    const token = cookieStore.get('whop_access_token')!;
 
     // Initialize User SDK to find out "Who is clicking this button?"
     const userSdk = new WhopSDK({ accessToken: token.value });

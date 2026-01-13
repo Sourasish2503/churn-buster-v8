@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google"; // 1. Import Inter instead of Geist
-import "./global.css";
+import "../out.css";
 
 // 2. Configure Inter
 const inter = Inter({ subsets: ["latin"] });
