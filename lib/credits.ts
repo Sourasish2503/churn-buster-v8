@@ -1,16 +1,16 @@
 import { db } from "@/lib/firebase";
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, Transaction } from "firebase-admin/firestore";
 
+// 1. Existing function with 't' typed
 export async function useCredit(companyId: string): Promise<boolean> {
-  if (!db) return false; // Safety if Firebase failed to init
+  if (!db) return false; 
   
   const ref = db.collection("credits").doc(companyId);
 
   try {
-    return await db.runTransaction(async (t) => {
+    return await db.runTransaction(async (t: Transaction) => {
       const doc = await t.get(ref);
       
-      // Handle "Doc doesn't exist" or "No balance field"
       if (!doc.exists) return false;
       
       const data = doc.data();
@@ -28,4 +28,14 @@ export async function useCredit(companyId: string): Promise<boolean> {
     return false;
   }
 }
-// Note: Export addPaidCredits as well (not shown but keep your existing logic with safe checks)
+
+// 2. MISSING EXPORT ADDED HERE
+export async function addPaidCredits(companyId: string, amount: number) {
+  if (!db) return;
+  const ref = db.collection("credits").doc(companyId);
+  
+  await ref.set({ 
+      balance: FieldValue.increment(amount),
+      lastUpdated: new Date().toISOString()
+  }, { merge: true });
+}

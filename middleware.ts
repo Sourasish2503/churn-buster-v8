@@ -5,15 +5,16 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('whop_access_token')
   const isHomePage = request.nextUrl.pathname === '/'
 
-  // 1. If user has no token...
-  if (!token) {
-    // 2. BUT they are visiting the home page (where your Dev Mode logic lives)...
-    if (isHomePage) {
-      // 3. LET THEM PASS! (Your page.tsx will decide what to do)
-      return NextResponse.next()
-    }
+  // Allow static assets to pass through (double safety)
+  if (request.nextUrl.pathname.startsWith('/_next') || request.nextUrl.pathname.includes('.')) {
+      return NextResponse.next();
+  }
 
-    // Otherwise, block API routes or other protected pages
+  // Allow "Dev Mode" (no token) ONLY on the home page
+  if (!token) {
+    if (isHomePage) {
+      return NextResponse.next() 
+    }
     return NextResponse.json(
       { error: 'Unauthorized: No session found' },
       { status: 401 }
@@ -24,6 +25,6 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Keep your existing matcher that excludes static files
+  // This matcher prevents the middleware from even running on static files
   matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 }

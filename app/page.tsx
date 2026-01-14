@@ -2,7 +2,6 @@ import { Suspense } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { RetentionDashboard } from "@/components/retention-dash";
-import WhopSDK from "@whop/sdk";
 
 type VerifiedSession = {
   isValid: boolean;
@@ -22,7 +21,7 @@ async function getWhopContext(searchParams: { [key: string]: string }): Promise<
   // Get Company ID from URL (Whop passes this when loading the app)
   const companyId = searchParams.company_id;
 
-  // --- SCENARIO A: PREVIEW MODE ---
+  // --- SCENARIO A: PREVIEW MODE (Dev + No Token) ---
   if (isDev && !accessToken) {
     return {
       isValid: true,
@@ -42,23 +41,29 @@ async function getWhopContext(searchParams: { [key: string]: string }): Promise<
   }
 
   try {
-    const userSdk = new WhopSDK({ accessToken: accessToken.value });
-    const me = await userSdk.me(); 
+    // FIX 1: Fetch "Me" directly (Bypassing SDK type errors)
+    const meRes = await fetch("https://api.whop.com/api/v2/me", {
+      headers: { Authorization: `Bearer ${accessToken.value}` }
+    });
+
+    if (!meRes.ok) throw new Error("Failed to verify user session");
+    const me = await meRes.json();
 
     if (!companyId) {
-      // If we are logged in but lost the company_id, we can't find the membership.
-      // Fallback: try to guess or show error.
       throw new Error("Missing Company Context");
     }
 
-    // 4. FETCH REAL MEMBERSHIP (The Fix for "Demo Data" Rejection)
-    // We need to find which membership the user has for THIS company.
-    const memberships = await userSdk.listMyMemberships({
-        valid: true,
-        company_id: companyId
-    });
+    // FIX 2: Fetch Memberships directly (Bypassing SDK)
+    // We look for a valid membership for this specific company
+    const memRes = await fetch(
+      `https://api.whop.com/api/v2/memberships?valid=true&company_id=${companyId}&page_size=1`, 
+      { headers: { Authorization: `Bearer ${accessToken.value}` } }
+    );
 
-    const activeMembership = memberships.data?.[0];
+    if (!memRes.ok) throw new Error("Failed to fetch memberships");
+    
+    const memData = await memRes.json();
+    const activeMembership = memData.data?.[0];
 
     if (!activeMembership) {
         return {
@@ -80,8 +85,9 @@ async function getWhopContext(searchParams: { [key: string]: string }): Promise<
 
   } catch (error) {
     console.error("Whop Native Verification Failed:", error);
-    // If token is invalid, clear it and retry login
-    if (String(error).includes("401")) {
+    
+    // If token is invalid (401), clear it and retry login
+    if (String(error).includes("401") || String(error).includes("Failed to verify")) {
         redirect('/api/auth/login');
     }
     

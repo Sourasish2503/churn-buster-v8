@@ -1,15 +1,23 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/firebase";
 import { cookies } from "next/headers";
-import WhopSDK from "@whop/sdk";
 
 export async function GET(req: Request) {
   try {
     const cookieStore = cookies();
-    const token = cookieStore.get("whop_access_token")!;
+    const token = cookieStore.get("whop_access_token");
 
-    const userSdk = new WhopSDK({ accessToken: token.value });
-    const me = await userSdk.me();
+    if (!token) {
+       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // FIX 1: Use fetch instead of SDK for 'me' (bypass accessToken type error)
+    const meRes = await fetch("https://api.whop.com/api/v2/me", {
+        headers: { Authorization: `Bearer ${token.value}` }
+    });
+    
+    if (!meRes.ok) throw new Error("Failed to fetch user");
+    const me = await meRes.json();
 
     const { searchParams } = new URL(req.url);
     const businessId = searchParams.get("business_id");
@@ -17,10 +25,18 @@ export async function GET(req: Request) {
     if (!businessId)
       return NextResponse.json({ error: "ID required" }, { status: 400 });
 
-    const userCompanies = await me.getCompanies();
+    // FIX 2: Fetch companies using fetch as well or assume me has companies if using v2/me with expansions
+    // Alternatively, just verify membership via API if needed. 
+    // For now, let's fetch the companies list manually:
+    const companiesRes = await fetch("https://api.whop.com/api/v2/me/companies", {
+        headers: { Authorization: `Bearer ${token.value}` }
+    });
+    const companiesData = await companiesRes.json();
+    const userCompanies = companiesData.data || [];
 
+    // FIX 3: Add explicit type (any) to parameter
     const isMember = userCompanies.some(
-      (company) => company.id === businessId
+      (company: any) => company.id === businessId
     );
 
     if (!isMember) {
@@ -34,7 +50,7 @@ export async function GET(req: Request) {
     const creditDoc = await db.collection("credits").doc(businessId).get();
     const credits = creditDoc.exists ? creditDoc.data()?.balance || 0 : 0;
 
-    // 2. Get Recent Logs (Last 5 attempts)
+    // 2. Get Recent Logs
     const logsSnapshot = await db
       .collection("businesses")
       .doc(businessId)
@@ -43,7 +59,8 @@ export async function GET(req: Request) {
       .limit(5)
       .get();
 
-    const logs = logsSnapshot.docs.map((doc) => ({
+    // FIX 4: Add explicit type (any) to doc parameter
+    const logs = logsSnapshot.docs.map((doc: any) => ({
       id: doc.id,
       ...doc.data(),
     }));

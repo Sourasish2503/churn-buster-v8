@@ -21,7 +21,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized: No session found" }, { status: 401 });
     }
 
-    // FIX: Fetch "Me" directly from API (Bypassing SDK type error)
+    // FIX 1: Fetch "Me" directly from API
     const meResponse = await fetch("https://api.whop.com/api/v2/me", {
       headers: {
         Authorization: `Bearer ${token.value}`,
@@ -40,13 +40,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized: User ID not found" }, { status: 401 });
     }
 
-    // 3. OWNERSHIP CHECK (Critical Step)
+    // 3. OWNERSHIP CHECK
     try {
-      const membership = await whop.memberships.get({ id: membershipId });
+      // FIX 2: Use .retrieve(string_id)
+      const membership = await whop.memberships.retrieve(membershipId);
       
-      // If the membership's owner ID doesn't match the logged-in user's ID... BLOCK IT.
       if (membership.user?.id !== me.id) {
-        console.warn(`🚨 Security Alert: User ${me.id} tried to modify membership ${membershipId} belonging to ${membership.user?.id}`);
+        console.warn(`🚨 Security Alert: User ${me.id} tried to modify membership ${membershipId}`);
         return NextResponse.json({ error: "Forbidden: You do not own this membership" }, { status: 403 });
       }
     } catch (err) {
@@ -54,11 +54,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid Membership ID" }, { status: 404 });
     }
 
-    // 4. COMMERCE CHECK: Does the seller have credits?
+    // 4. COMMERCE CHECK
     const hasCredits = await useCredit(companyId);
 
     if (!hasCredits) {
-      console.warn(`❌ Company ${companyId} has 0 credits. Offer blocked.`);
       return NextResponse.json({ 
         error: "Retention Unavailable", 
         details: "The creator has run out of retention credits." 
@@ -66,8 +65,8 @@ export async function POST(req: Request) {
     }
 
     // 5. APPLY OFFER (Using Admin SDK)
-    await whop.memberships.update({
-      id: membershipId,
+    // FIX 3: update(id, params) - ID must be the first argument
+    await whop.memberships.update(membershipId, {
       metadata: {
         retention_offer_claimed: "true",
         retention_discount_percent: discountPercent,
