@@ -18,12 +18,16 @@ export async function GET(request: Request) {
   };
   const encodedState = Buffer.from(JSON.stringify(state)).toString("base64");
 
-  // 4. Build the Whop OAuth URL
+  // 4. Build the Whop OAuth URL (HARDCODED TEST)
   const oauthUrl = new URL("https://whop.com/oauth/authorize");
-  oauthUrl.searchParams.set("client_id", process.env.WHOP_CLIENT_ID!);
-  oauthUrl.searchParams.set("redirect_uri", process.env.WHOP_REDIRECT_URI!);
+  
+  // PASTE YOUR REAL ID HERE DIRECTLY:
+  oauthUrl.searchParams.set("client_id", "app_Urg8gBmxqudKom"); 
+  
+  // PASTE YOUR REAL VERCEL DOMAIN HERE DIRECTLY:
+  oauthUrl.searchParams.set("redirect_uri", "https://churn-buster-v8.vercel.app/api/oauth/callback");
+  
   oauthUrl.searchParams.set("response_type", "code");
-  // Pass the context as 'state' so we get it back after login
   oauthUrl.searchParams.set("state", encodedState);
 
   const response = NextResponse.redirect(oauthUrl);
