@@ -3,18 +3,25 @@ import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
   const token = request.cookies.get('whop_access_token')
-  const isHomePage = request.nextUrl.pathname === '/'
+  const { pathname } = request.nextUrl
+  
+  // 1. PUBLIC ROUTES (Allow these to pass without a token)
+  const isPublic = 
+      pathname === '/' ||                       // Home Page (Handles its own redirects)
+      pathname.startsWith('/api/log') ||        // Logging (Must be public)
+      pathname.startsWith('/api/auth') ||       // Login Route (CRITICAL)
+      pathname.startsWith('/api/oauth') ||      // OAuth Callback (CRITICAL)
+      pathname.startsWith('/api/webhook') ||    // Webhooks from Whop
+      pathname.startsWith('/_next') ||          // Next.js internals
+      pathname.includes('.')                    // Static files (images, css, etc.)
 
-  // Allow static assets to pass through (double safety)
-  if (request.nextUrl.pathname.startsWith('/_next') || request.nextUrl.pathname.includes('.')) {
-      return NextResponse.next();
+  // If it's a public route, let it pass immediately
+  if (isPublic) {
+      return NextResponse.next()
   }
 
-  // Allow "Dev Mode" (no token) ONLY on the home page
+  // 2. PROTECTED ROUTES (Everything else needs a token)
   if (!token) {
-    if (isHomePage) {
-      return NextResponse.next() 
-    }
     return NextResponse.json(
       { error: 'Unauthorized: No session found' },
       { status: 401 }
@@ -25,6 +32,6 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // This matcher prevents the middleware from even running on static files
+  // Run on everything except static assets
   matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 }
