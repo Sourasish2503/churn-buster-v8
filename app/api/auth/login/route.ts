@@ -1,38 +1,41 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
 
-  // 1. Capture the context Whop passed us (so we don't lose it)
-  // Whop passes ?company_id=...&experience_id=... when opening the app
+  // --- CONFIGURATION ---
+  // PASTE YOUR ID HERE DIRECTLY FOR THIS TEST:
+  const HARDCODED_CLIENT_ID = "app_MS6Yv4SmtG0TNI"; 
+  
+  // PASTE YOUR VERCEL URL HERE DIRECTLY:
+  const HARDCODED_REDIRECT_URI = "https://churn-buster-v8.vercel.app/api/oauth/callback";
+  // ---------------------
+
+  // 1. Capture context (params passed by Whop)
   const returnParams = new URLSearchParams(searchParams as any).toString();
 
-  // 2. Generate a random value for CSRF protection
+  // 2. Generate security token
   const csrfToken = crypto.randomUUID();
 
-  // 3. Build the state parameter
+  // 3. Build state (This is required by Whop)
   const state = {
     csrfToken,
     returnParams,
   };
   const encodedState = Buffer.from(JSON.stringify(state)).toString("base64");
 
-  // 4. Build the Whop OAuth URL
+  // 4. Build the URL
   const oauthUrl = new URL("https://whop.com/oauth/authorize");
-  
-  // Use the environment variables we verified
-  oauthUrl.searchParams.set("client_id", process.env.WHOP_CLIENT_ID!);
-  oauthUrl.searchParams.set("redirect_uri", process.env.WHOP_REDIRECT_URI!);
+  oauthUrl.searchParams.set("client_id", HARDCODED_CLIENT_ID);
+  oauthUrl.searchParams.set("redirect_uri", HARDCODED_REDIRECT_URI);
   oauthUrl.searchParams.set("response_type", "code");
-  // Pass the context as 'state' so we get it back after login
   oauthUrl.searchParams.set("state", encodedState);
-  // Explicitly ask for user info scope
-  oauthUrl.searchParams.set("scope", "openid read_user"); 
+  oauthUrl.searchParams.set("scope", "openid read_user"); // Explicitly ask for access
 
   const response = NextResponse.redirect(oauthUrl);
 
-  // 5. Set the CSRF token in a cookie
+  // 5. USE THE COOKIES IMPORT (Fixes your warning)
+  // We save the token so we can verify it when the user comes back
   response.cookies.set("whop_csrf_token", csrfToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
