@@ -7,31 +7,37 @@ export function middleware(request: NextRequest) {
   
   // 1. PUBLIC ROUTES (Allow these to pass without a token)
   const isPublic = 
-      pathname === '/' ||                       // Home Page (Handles its own redirects)
-      pathname.startsWith('/api/log') ||        // Logging (Must be public)
-      pathname.startsWith('/api/auth') ||       // Login Route (CRITICAL)
-      pathname.startsWith('/api/oauth') ||      // OAuth Callback (CRITICAL)
-      pathname.startsWith('/api/webhook') ||    // Webhooks from Whop
+      pathname === '/' ||                       // Home Page
+      pathname.startsWith('/api/log') ||        // Logging
+      pathname.startsWith('/api/auth') ||       // Login
+      pathname.startsWith('/api/oauth') ||      // OAuth Callback
+      pathname.startsWith('/api/webhook') ||    // Webhooks
       pathname.startsWith('/_next') ||          // Next.js internals
-      pathname.includes('.')                    // Static files (images, css, etc.)
+      pathname.includes('.')                    // Static files
 
-  // If it's a public route, let it pass immediately
   if (isPublic) {
       return NextResponse.next()
   }
 
   // 2. PROTECTED ROUTES (Everything else needs a token)
   if (!token) {
-    return NextResponse.json(
-      { error: 'Unauthorized: No session found' },
-      { status: 401 }
-    )
+    // A: If it's an API call (like fetching data), return JSON error
+    if (pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          { error: 'Unauthorized: No session found' },
+          { status: 401 }
+        )
+    }
+    
+    // B: If it's a USER trying to visit a page (like /admin), REDIRECT to login
+    // This is the specific fix for your issue:
+    const loginUrl = new URL('/api/auth/login', request.url)
+    return NextResponse.redirect(loginUrl)
   }
 
   return NextResponse.next()
 }
 
 export const config = {
-  // Run on everything except static assets
   matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 }
