@@ -1,114 +1,99 @@
 import { Suspense } from 'react';
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
 import { RetentionDashboard } from "@/components/retention-dash";
+import { verifyWhopUser, whop } from "@/lib/whop";
 
-type VerifiedSession = {
-  isValid: boolean;
-  membershipId?: string;
-  companyId?: string;
-  customerName?: string;
-  discountPercent: string;
-  isPreviewMode: boolean;
-  errorMessage?: string;
-};
-
-async function getWhopContext(searchParams: { [key: string]: string }): Promise<VerifiedSession> {
-  const isDev = process.env.NODE_ENV === 'development';
-  const cookieStore = cookies();
-  const accessToken = cookieStore.get('whop_access_token');
-  
-  // Get Company ID from URL (Whop passes this when loading the app)
-  const companyId = searchParams.company_id;
-
-  // --- SCENARIO A: PREVIEW MODE (Dev + No Token) ---
-  if (isDev && !accessToken) {
-    return {
-      isValid: true,
-      membershipId: "mem_dev_123",
-      companyId: "biz_dev_test",
-      customerName: "Dev User",
-      discountPercent: "30",
-      isPreviewMode: true 
-    };
-  }
-
-  // --- SCENARIO B: PRODUCTION (Auto-Redirect) ---
-  if (!accessToken) {
-    // PASS THE PARAMS to the login route so they are preserved
-    const params = new URLSearchParams(searchParams).toString();
-    redirect(`/api/auth/login?${params}`); 
-  }
-
+// Helper to fetch membership details
+async function getMembership(userId: string, companyId: string) {
   try {
-    // FIX 1: Fetch "Me" directly (Bypassing SDK type errors)
-    const meRes = await fetch("https://api.whop.com/api/v2/me", {
-      headers: { Authorization: `Bearer ${accessToken.value}` }
+    // FIX 1: Use 'first' instead of 'per_page' (Cursor Pagination)
+    const response = await whop.memberships.list({
+      user_ids: [userId],
+      company_id: companyId,
+      first: 5, // <--- CHANGED FROM per_page
     });
 
-    if (!meRes.ok) throw new Error("Failed to verify user session");
-    const me = await meRes.json();
-
-    if (!companyId) {
-      throw new Error("Missing Company Context");
-    }
-
-    // FIX 2: Fetch Memberships directly (Bypassing SDK)
-    // We look for a valid membership for this specific company
-    const memRes = await fetch(
-      `https://api.whop.com/api/v2/memberships?valid=true&company_id=${companyId}&page_size=1`, 
-      { headers: { Authorization: `Bearer ${accessToken.value}` } }
+    // FIX 2: Check 'status' instead of 'valid'
+    // We consider a user "Valid" if they are Active, Trialing, Past Due (grace period), or Completed (Lifetime)
+    const validStatuses = ["active", "trialing", "past_due", "completed"];
+    
+    const activeMembership = response.data?.find((m) => 
+      validStatuses.includes(m.status)
     );
-
-    if (!memRes.ok) throw new Error("Failed to fetch memberships");
     
-    const memData = await memRes.json();
-    const activeMembership = memData.data?.[0];
-
-    if (!activeMembership) {
-        return {
-            isValid: false,
-            errorMessage: "You do not have an active membership with this company.",
-            discountPercent: "0",
-            isPreviewMode: false
-        }
-    }
-
+    if (!activeMembership) return null;
+    
     return {
-      isValid: true,
-      membershipId: activeMembership.id, // REAL Membership ID (mem_xxx)
-      companyId: companyId,
-      customerName: me.username || "Valued Member",
-      discountPercent: "30", // TODO: Fetch from your DB based on companyId
-      isPreviewMode: false
+      id: activeMembership.id,
+      isValid: true
     };
-
-  } catch (error) {
-    console.error("Whop Native Verification Failed:", error);
-    
-    // If token is invalid (401), clear it and retry login
-    if (String(error).includes("401") || String(error).includes("Failed to verify")) {
-        redirect('/api/auth/login');
-    }
-    
-    return { 
-      isValid: false, 
-      errorMessage: "Unable to verify your membership.",
-      discountPercent: "0",
-      isPreviewMode: false
-    };
+  } catch (e) {
+    console.error("Failed to fetch membership:", e);
+    return null;
   }
 }
 
 export default async function Page({ searchParams }: { searchParams: { [key: string]: string } }) {
-  const session = await getWhopContext(searchParams);
+  const isDev = process.env.NODE_ENV === 'development';
+  
+  // --- SCENARIO A: PREVIEW MODE (Dev Environment) ---
+  if (isDev) {
+    return (
+      <main className="min-h-screen bg-black flex items-center justify-center p-4">
+         <div className="absolute top-4 left-4 bg-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full text-xs font-bold border border-yellow-500/50">
+           DEV MODE
+         </div>
+         <Suspense fallback={<div className="text-white">Loading...</div>}>
+           <RetentionDashboard 
+             membershipId="mem_dev_123" 
+             companyId="biz_dev_test" 
+             discountPercent="30"
+             customerName="Dev User"
+             isPreviewMode={true}
+           />
+         </Suspense>
+      </main>
+    );
+  }
 
-  if (!session.isValid) {
+  // --- SCENARIO B: PRODUCTION (Signed Context) ---
+  const user = await verifyWhopUser();
+
+  if (!user || !user.userId) {
     return (
       <main className="min-h-screen bg-black flex items-center justify-center p-4 text-white">
         <div className="max-w-md text-center border border-red-900 bg-red-950/30 p-8 rounded-xl">
-          <h1 className="text-xl font-bold text-red-500 mb-2">Access Issue</h1>
-          <p className="text-gray-400">{session.errorMessage}</p>
+          <h1 className="text-xl font-bold text-red-500 mb-2">Access Denied</h1>
+          <p className="text-gray-400">
+            Unable to verify your session. <br/>
+            Please open this app from the <strong>Whop Dashboard</strong>.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  const companyId = searchParams.company_id;
+  
+  if (!companyId) {
+     return (
+      <main className="min-h-screen bg-black flex items-center justify-center p-4 text-white">
+        <div className="text-center">
+           <p className="text-red-400">Error: Missing Company Context</p>
+        </div>
+      </main>
+    );
+  }
+
+  const membership = await getMembership(user.userId, companyId);
+
+  if (!membership) {
+     return (
+      <main className="min-h-screen bg-black flex items-center justify-center p-4 text-white">
+        <div className="max-w-md text-center border border-yellow-900 bg-yellow-950/30 p-8 rounded-xl">
+          <h1 className="text-xl font-bold text-yellow-500 mb-2">No Active Membership</h1>
+          <p className="text-gray-400">
+            You are verified, but we couldn't find an active membership for this company.
+          </p>
         </div>
       </main>
     );
@@ -118,11 +103,11 @@ export default async function Page({ searchParams }: { searchParams: { [key: str
     <main className="min-h-screen bg-black flex items-center justify-center p-4">
       <Suspense fallback={<div className="text-white">Loading...</div>}>
         <RetentionDashboard 
-          membershipId={session.membershipId!} 
-          companyId={session.companyId!} 
-          discountPercent={session.discountPercent}
-          customerName={session.customerName}
-          isPreviewMode={session.isPreviewMode}
+          membershipId={membership.id} 
+          companyId={companyId} 
+          discountPercent="30"
+          customerName="Valued Member"
+          isPreviewMode={false}
         />
       </Suspense>
     </main>
