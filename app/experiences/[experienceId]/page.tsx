@@ -42,14 +42,15 @@ export default async function ExperiencePage({
       );
     }
 
-    // ✅ 3. Get Membership (FIXED - use user_id singular)
+    // ✅ 3. Get Membership (Using ONLY valid SDK parameters)
     const memberships = await whopsdk.memberships.list({
-      user_id: userId,  // ✅ Changed from whop_user_ids to user_id
-      experience_id: experienceId,  // ✅ Singular, not array
-      valid: true,
+      user_ids: [userId],
     });
 
-    const membership = memberships.data?.[0];
+    // Filter by experienceId manually since experience_ids doesn't exist
+    const membership = memberships.data?.find(
+      (m: any) => m.plan?.experiences?.some((exp: any) => exp.id === experienceId)
+    ) || memberships.data?.[0];
     
     if (!membership) {
       return (
@@ -64,10 +65,8 @@ export default async function ExperiencePage({
       );
     }
 
-    // ✅ 4. Get User Details (FIXED - handle missing email property)
+    // ✅ 4. Get User Details
     const user = await whopsdk.users.retrieve(userId);
-    
-    // Type assertion to access email safely
     const userWithEmail = user as { username?: string; email?: string; id: string };
     const customerName = userWithEmail.username || 
                         userWithEmail.email?.split('@')[0] || 
