@@ -1,38 +1,41 @@
-import WhopSDK from "@whop/sdk";
+import { Whop } from "@whop/sdk";
 import { headers } from "next/headers";
 
+// ✅ CRITICAL: Ensure these env vars are set
 const apiKey = process.env.WHOP_API_KEY;
+const appId = process.env.NEXT_PUBLIC_WHOP_APP_ID;
 
 if (!apiKey) {
-  throw new Error("❌ MISSING WHOP_API_KEY in .env file");
+  throw new Error("❌ MISSING WHOP_API_KEY in environment variables");
 }
 
-// Initialize SDK
-export const whop = new WhopSDK({ apiKey });
+if (!appId) {
+  throw new Error("❌ MISSING NEXT_PUBLIC_WHOP_APP_ID in environment variables");
+}
 
-// --- THE VERIFICATION HELPER ---
+// Initialize Whop SDK
+export const whopsdk = new Whop({
+  apiKey,
+  appID: appId,
+});
+
+// For backwards compatibility
+export const whop = whopsdk;
+
+// ✅ JWT Token Verification (Required for App Store apps)
 export async function verifyWhopUser() {
-  const headerPayload = await headers();
-
   try {
-    // 1. Verify the Token/Signature sent by Whop
-    // ✅ FIXED: Using 'verifyUserToken' instead of 'validateRequest'
-    const { userId } = await whop.verifyUserToken(headerPayload);
-
+    const headerPayload = await headers();
+    const { userId } = await whopsdk.verifyUserToken(headerPayload);
+    
     if (!userId) {
       console.error("❌ Whop Token Validation Failed: No User ID");
       return null;
     }
 
-    // 2. Return the verified identity
-    return { 
-      userId, 
-      // Note: companyId might not be returned by verifyUserToken directly in all SDK versions. 
-      // If you need companyId, you usually get it from the URL params in the page.
-      // For now, we return userId which is the most important part.
-    };
+    return { userId };
   } catch (err) {
-    console.error("❌ Security Error:", err);
+    console.error("❌ Whop Security Error:", err);
     return null;
   }
 }

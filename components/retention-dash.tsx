@@ -1,17 +1,17 @@
-"use client"; // Still a client component for interactivity
+"use client";
 
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { TrendingDown, DollarSign, Clock, Users, Heart } from "lucide-react";
+import { TrendingDown, DollarSign, Clock, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Define the props we expect from the server
 interface DashboardProps {
   membershipId: string;
   companyId: string;
+  experienceId: string; // ✅ Added
   discountPercent: string;
-  customerName?: string;
+  customerName: string;
   isPreviewMode: boolean;
 }
 
@@ -22,14 +22,14 @@ const cancellationReasons = [
   { id: 4, icon: Clock, label: "Need a break", value: "break" },
 ];
 
-export function RetentionDashboard({ 
-  membershipId, 
-  companyId, 
-  discountPercent, 
+export function RetentionDashboard({
+  membershipId,
+  companyId,
+  experienceId, // ✅ Now receiving this
+  discountPercent,
   customerName,
-  isPreviewMode 
-}: DashboardProps) { // <--- Receive props here
-
+  isPreviewMode
+}: DashboardProps) {
   const [step, setStep] = useState<"reasons" | "offer" | "success">("reasons");
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -37,9 +37,25 @@ export function RetentionDashboard({
   const handleReasonSelect = async (value: string) => {
     setSelectedReason(value);
     
-    // Log the reason securely (Optional: api call)
+    // ✅ Log to Firebase (no demo mode check)
     if (!isPreviewMode) {
-      // Call your log API here
+      try {
+        await fetch("/api/log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            businessId: companyId,
+            collectionName: "cancellation_reasons",
+            data: {
+              membershipId,
+              experienceId, // ✅ Include experience ID
+              reason: value,
+            },
+          }),
+        });
+      } catch (err) {
+        console.error("Failed to log reason:", err);
+      }
     }
     
     setTimeout(() => setStep("offer"), 300);
@@ -47,98 +63,99 @@ export function RetentionDashboard({
 
   const handleClaimOffer = async () => {
     setLoading(true);
-
-    if (isPreviewMode) {
-      alert("PREVIEW MODE: In production, this would verify and apply the discount via SDK.");
-      setLoading(false);
-      setStep("success");
-      return;
-    }
-
+    
     try {
       const response = await fetch("/api/claim-offer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // We pass the IDs, but the API should verify them again if possible,
-        // or rely on the fact that this page was rendered securely.
         body: JSON.stringify({
           membershipId,
           companyId,
+          experienceId, // ✅ Include experience ID
           discountPercent,
         }),
       });
 
-      if (!response.ok) throw new Error("Failed to apply offer");
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to apply offer");
+      }
+
       setStep("success");
-    } catch (e) {
+    } catch (e: any) {
       console.error("Error claiming offer:", e);
-      alert("System Error: Could not apply discount.");
+      alert(e.message || "System Error: Could not apply discount.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="mx-auto max-w-2xl px-4 pb-12">
-      
-      {/* Header with Personalized Name */}
-      <div className="mb-8 text-center pt-8">
+    <div className="min-h-screen bg-gradient-to-br from-black via-purple-950 to-black flex items-center justify-center p-4">
+      <Card className="w-full max-w-2xl bg-black/60 border-purple-500/20 backdrop-blur-xl p-8">
+        {/* Preview Mode Banner */}
         {isPreviewMode && (
-          <div className="mb-4 inline-block rounded-full border border-yellow-500/50 bg-yellow-500/10 px-3 py-1 text-xs text-yellow-200">
-             Preview Mode
+          <div className="mb-4 bg-yellow-500/20 border border-yellow-500/50 rounded-lg p-3 text-center">
+            <p className="text-yellow-500 font-semibold">Preview Mode</p>
           </div>
         )}
-        
-        <h1 className="text-4xl font-bold text-balance">
-          <span className="text-neon-pink">Wait {customerName},</span> <span className="text-foreground">before you go...</span>
-        </h1>
-      </div>
 
-      <div className="relative min-h-[400px]">
+        {/* Header */}
+        <h1 className="text-3xl font-bold text-white mb-2 text-center">
+          Wait {customerName}, before you go...
+        </h1>
+
         {/* Step 1: Reasons */}
         {step === "reasons" && (
-           /* ... (Keep your existing Reason UI code here, it's good) ... */
-           <Card className="border-white/10 bg-black/40 p-8 shadow-2xl backdrop-blur-xl">
-             <div className="space-y-3">
-               {cancellationReasons.map((reason) => {
-                 const Icon = reason.icon;
-                 return (
-                   <button
-                     key={reason.id}
-                     onClick={() => handleReasonSelect(reason.value)}
-                     className={cn(
-                       "group relative w-full rounded-lg border-2 p-5 transition-all duration-300",
-                       selectedReason === reason.value 
-                         ? "border-neon-pink bg-neon-pink/10" 
-                         : "border-white/5 bg-black/20 hover:border-neon-cyan/50",
-                     )}
-                   >
-                     <div className="flex items-center gap-4">
-                       <Icon className={cn("h-6 w-6", selectedReason === reason.value ? "text-neon-pink" : "text-gray-400")} />
-                       <span className="text-lg font-medium text-white">{reason.label}</span>
-                     </div>
-                   </button>
-                 )
-               })}
-             </div>
-           </Card>
+          <div className="space-y-4 mt-8">
+            <p className="text-gray-400 text-center mb-6">
+              Help us understand why you're leaving:
+            </p>
+            {cancellationReasons.map((reason) => {
+              const Icon = reason.icon;
+              return (
+                <button
+                  key={reason.id}
+                  onClick={() => handleReasonSelect(reason.value)}
+                  className={cn(
+                    "group relative w-full rounded-lg border-2 p-5 transition-all duration-300 flex items-center gap-4",
+                    selectedReason === reason.value
+                      ? "border-purple-500 bg-purple-500/10"
+                      : "border-white/5 bg-black/20 hover:border-purple-500/50"
+                  )}
+                >
+                  <Icon className="text-purple-400" size={24} />
+                  <span className="text-white font-medium">{reason.label}</span>
+                </button>
+              );
+            })}
+          </div>
         )}
 
         {/* Step 2: Offer */}
         {step === "offer" && (
-          <div className="relative overflow-hidden rounded-2xl border border-neon-cyan/30 bg-slate-900/80 p-8 shadow-[0_0_40px_rgba(0,255,255,0.1)]">
-            <h2 className="mb-3 text-3xl font-bold text-white">
-              <span className="text-neon-cyan">{discountPercent}% OFF</span> <span>Next 3 Months</span>
-            </h2>
-            <p className="text-gray-400 mb-8">
-              We&apos;d hate to lose you, {customerName}.
+          <div className="text-center mt-8 space-y-6">
+            <div className="bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg p-8">
+              <p className="text-6xl font-bold text-white">{discountPercent}% OFF</p>
+              <p className="text-white/80 mt-2">Next 3 Months</p>
+            </div>
+            
+            <p className="text-gray-300">
+              We'd hate to lose you, {customerName}.
             </p>
 
-            <Button onClick={handleClaimOffer} disabled={loading} className="w-full bg-neon-cyan text-black font-bold h-14 text-lg hover:bg-neon-cyan/90">
+            <Button
+              onClick={handleClaimOffer}
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 py-6 text-lg"
+            >
               {loading ? "Applying Discount..." : "Claim This Offer"}
             </Button>
-            
-            <button className="mt-4 w-full text-sm text-gray-500 hover:text-white">
+
+            <button
+              onClick={() => window.close()}
+              className="text-gray-500 text-sm hover:text-gray-400"
+            >
               No thanks, I still want to cancel
             </button>
           </div>
@@ -146,14 +163,18 @@ export function RetentionDashboard({
 
         {/* Step 3: Success */}
         {step === "success" && (
-          <div className="text-center p-10 bg-slate-900/80 rounded-2xl border border-green-500/30">
-             <Heart className="h-16 w-16 text-green-400 mx-auto mb-4" />
-             <h2 className="text-3xl font-bold text-white mb-2">Success!</h2>
-             <p className="text-gray-400">Discount applied to membership {membershipId.slice(0, 8)}...</p>
+          <div className="text-center mt-8 space-y-6">
+            <div className="text-6xl">🎉</div>
+            <h2 className="text-2xl font-bold text-white">Success!</h2>
+            <p className="text-gray-300">
+              Your {discountPercent}% discount has been applied!
+            </p>
+            <p className="text-sm text-gray-500">
+              Membership ID: {membershipId.slice(0, 16)}...
+            </p>
           </div>
         )}
-
-      </div>
+      </Card>
     </div>
   );
 }
